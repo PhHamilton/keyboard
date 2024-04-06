@@ -2,7 +2,7 @@
  * Acutest -- Another C/C++ Unit Test facility
  * <https://github.com/mity/acutest>
  *
- * Copyright 2013-2023 Martin Mitáš
+ * Copyright 2013-2020 Martin Mitas
  * Copyright 2019 Garrett D'Amore
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -26,20 +26,6 @@
 
 #ifndef ACUTEST_H
 #define ACUTEST_H
-
-
-/* Try to auto-detect whether we need to disable C++ exception handling.
- * If the detection fails, you may always define TEST_NO_EXCEPTIONS before
- * including "acutest.h" manually. */
-#ifdef __cplusplus
-    #if (__cplusplus >= 199711L && !defined __cpp_exceptions)  ||            \
-        ((defined(__GNUC__) || defined(__clang__)) && !defined __EXCEPTIONS)
-        #ifndef TEST_NO_EXCEPTIONS
-            #define TEST_NO_EXCEPTIONS
-        #endif
-    #endif
-#endif
-
 
 /************************
  *** Public interface ***
@@ -94,10 +80,8 @@
  *       TEST_CHECK(ptr->member2 > 200);
  *   }
  */
-#define TEST_CHECK_(cond,...)                                                  \
-    acutest_check_(!!(cond), __FILE__, __LINE__, __VA_ARGS__)
-#define TEST_CHECK(cond)                                                       \
-    acutest_check_(!!(cond), __FILE__, __LINE__, "%s", #cond)
+#define TEST_CHECK_(cond,...)   acutest_check_((cond), __FILE__, __LINE__, __VA_ARGS__)
+#define TEST_CHECK(cond)        acutest_check_((cond), __FILE__, __LINE__, "%s", #cond)
 
 
 /* These macros are the same as TEST_CHECK_ and TEST_CHECK except that if the
@@ -117,18 +101,17 @@
  */
 #define TEST_ASSERT_(cond,...)                                                 \
     do {                                                                       \
-        if(!acutest_check_(!!(cond), __FILE__, __LINE__, __VA_ARGS__))         \
+        if(!acutest_check_((cond), __FILE__, __LINE__, __VA_ARGS__))           \
             acutest_abort_();                                                  \
     } while(0)
 #define TEST_ASSERT(cond)                                                      \
     do {                                                                       \
-        if(!acutest_check_(!!(cond), __FILE__, __LINE__, "%s", #cond))         \
+        if(!acutest_check_((cond), __FILE__, __LINE__, "%s", #cond))           \
             acutest_abort_();                                                  \
     } while(0)
 
 
 #ifdef __cplusplus
-#ifndef TEST_NO_EXCEPTIONS
 /* Macros to verify that the code (the 1st argument) throws exception of given
  * type (the 2nd argument). (Note these macros are only available in C++.)
  *
@@ -175,7 +158,6 @@
         if(msg_ != NULL)                                                       \
             acutest_message_("%s", msg_);                                      \
     } while(0)
-#endif  /* #ifndef TEST_NO_EXCEPTIONS */
 #endif  /* #ifdef __cplusplus */
 
 
@@ -262,17 +244,7 @@
 #endif
 
 
-/* Macros for marking the test as SKIPPED.
- * Note it can only be used at the beginning of a test, before any other
- * checking.
- *
- * Once used, the best practice is to return from the test routine as soon
- * as possible.
- */
-#define TEST_SKIP(...)         acutest_skip_(__FILE__, __LINE__, __VA_ARGS__)
-
-
-/* Common test initialisation/clean-up
+/* Common test initialiation/clean-up
  *
  * In some test suites, it may be needed to perform some sort of the same
  * initialization and/or clean-up in all the tests.
@@ -299,45 +271,10 @@
 
 /* The unit test files should not rely on anything below. */
 
-#include <stdlib.h>
-
-/* Enable the use of the non-standard keyword __attribute__ to silence warnings under some compilers */
-#if defined(__GNUC__) || defined(__clang__)
-    #define ACUTEST_ATTRIBUTE_(attr)    __attribute__((attr))
-#else
-    #define ACUTEST_ATTRIBUTE_(attr)
-#endif
-
-#ifdef __cplusplus
-    extern "C" {
-#endif
-
-enum acutest_state_ {
-    ACUTEST_STATE_INITIAL = -4,
-    ACUTEST_STATE_SELECTED = -3,
-    ACUTEST_STATE_NEEDTORUN = -2,
-
-    /* By the end all tests should be in one of the following: */
-    ACUTEST_STATE_EXCLUDED = -1,
-    ACUTEST_STATE_SUCCESS = 0,
-    ACUTEST_STATE_FAILED = 1,
-    ACUTEST_STATE_SKIPPED = 2
-};
-
-int acutest_check_(int cond, const char* file, int line, const char* fmt, ...);
-void acutest_case_(const char* fmt, ...);
-void acutest_message_(const char* fmt, ...);
-void acutest_dump_(const char* title, const void* addr, size_t size);
-void acutest_abort_(void) ACUTEST_ATTRIBUTE_(noreturn);
-#ifdef __cplusplus
-    }  /* extern "C" */
-#endif
-
-#ifndef TEST_NO_MAIN
-
 #include <ctype.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <setjmp.h>
 
@@ -378,15 +315,20 @@ void acutest_abort_(void) ACUTEST_ATTRIBUTE_(noreturn);
 #endif
 
 #ifdef __cplusplus
-#ifndef TEST_NO_EXCEPTIONS
     #include <exception>
-#endif
 #endif
 
 #ifdef __has_include
     #if __has_include(<valgrind.h>)
         #include <valgrind.h>
     #endif
+#endif
+
+/* Enable the use of the non-standard keyword __attribute__ to silence warnings under some compilers */
+#if defined(__GNUC__) || defined(__clang__)
+    #define ACUTEST_ATTRIBUTE_(attr)    __attribute__((attr))
+#else
+    #define ACUTEST_ATTRIBUTE_(attr)
 #endif
 
 /* Note our global private identifiers end with '_' to mitigate risk of clash
@@ -411,32 +353,47 @@ struct acutest_test_ {
 };
 
 struct acutest_test_data_ {
-    enum acutest_state_ state;
+    unsigned char flags;
     double duration;
 };
 
+enum {
+    ACUTEST_FLAG_RUN_ = 1 << 0,
+    ACUTEST_FLAG_SUCCESS_ = 1 << 1,
+    ACUTEST_FLAG_FAILURE_ = 1 << 2,
+};
 
 extern const struct acutest_test_ acutest_list_[];
 
+int acutest_check_(int cond, const char* file, int line, const char* fmt, ...);
+void acutest_case_(const char* fmt, ...);
+void acutest_message_(const char* fmt, ...);
+void acutest_dump_(const char* title, const void* addr, size_t size);
+void acutest_abort_(void) ACUTEST_ATTRIBUTE_(noreturn);
+
+
+#ifndef TEST_NO_MAIN
 
 static char* acutest_argv0_ = NULL;
-static int acutest_list_size_ = 0;
+static size_t acutest_list_size_ = 0;
 static struct acutest_test_data_* acutest_test_data_ = NULL;
+static size_t acutest_count_ = 0;
 static int acutest_no_exec_ = -1;
 static int acutest_no_summary_ = 0;
 static int acutest_tap_ = 0;
-static int acutest_exclude_mode_ = 0;
+static int acutest_skip_mode_ = 0;
 static int acutest_worker_ = 0;
 static int acutest_worker_index_ = 0;
 static int acutest_cond_failed_ = 0;
+static int acutest_was_aborted_ = 0;
 static FILE *acutest_xml_output_ = NULL;
+
+static int acutest_stat_failed_units_ = 0;
+static int acutest_stat_run_units_ = 0;
 
 static const struct acutest_test_* acutest_current_test_ = NULL;
 static int acutest_current_index_ = 0;
 static char acutest_case_name_[TEST_CASE_MAXSIZE] = "";
-static int acutest_test_check_count_ = 0;
-static int acutest_test_skip_count_ = 0;
-static char acutest_test_skip_reason_[256] = "";
 static int acutest_test_already_logged_ = 0;
 static int acutest_case_already_logged_ = 0;
 static int acutest_verbose_level_ = 2;
@@ -447,18 +404,6 @@ static int acutest_timer_ = 0;
 static int acutest_abort_has_jmp_buf_ = 0;
 static jmp_buf acutest_abort_jmp_buf_;
 
-static int
-acutest_count_(enum acutest_state_ state)
-{
-    int i, n;
-
-    for(i = 0, n = 0; i < acutest_list_size_; i++) {
-        if(acutest_test_data_[i].state == state)
-            n++;
-    }
-
-    return n;
-}
 
 static void
 acutest_cleanup_(void)
@@ -472,7 +417,6 @@ acutest_exit_(int exit_code)
     acutest_cleanup_();
     exit(exit_code);
 }
-
 
 #if defined ACUTEST_WIN_
     typedef LARGE_INTEGER acutest_timer_type_;
@@ -529,7 +473,18 @@ acutest_exit_(int exit_code)
     static double
     acutest_timer_diff_(struct timespec start, struct timespec end)
     {
-        return (double)(end.tv_sec - start.tv_sec) + (double)(end.tv_nsec - start.tv_nsec) / 1e9;
+        double endns;
+        double startns;
+
+        endns = end.tv_sec;
+        endns *= 1e9;
+        endns += end.tv_nsec;
+
+        startns = start.tv_sec;
+        startns *= 1e9;
+        startns += start.tv_nsec;
+
+        return ((endns - startns)/ 1e9);
     }
 
     static void
@@ -567,13 +522,11 @@ acutest_exit_(int exit_code)
 #endif
 
 #define ACUTEST_COLOR_DEFAULT_              0
-#define ACUTEST_COLOR_RED_                  1
-#define ACUTEST_COLOR_GREEN_                2
-#define ACUTEST_COLOR_YELLOW_               3
-#define ACUTEST_COLOR_DEFAULT_INTENSIVE_    10
-#define ACUTEST_COLOR_RED_INTENSIVE_        11
-#define ACUTEST_COLOR_GREEN_INTENSIVE_      12
-#define ACUTEST_COLOR_YELLOW_INTENSIVE_     13
+#define ACUTEST_COLOR_GREEN_                1
+#define ACUTEST_COLOR_RED_                  2
+#define ACUTEST_COLOR_DEFAULT_INTENSIVE_    3
+#define ACUTEST_COLOR_GREEN_INTENSIVE_      4
+#define ACUTEST_COLOR_RED_INTENSIVE_        5
 
 static int ACUTEST_ATTRIBUTE_(format (printf, 2, 3))
 acutest_colored_printf_(int color, const char* fmt, ...)
@@ -595,12 +548,10 @@ acutest_colored_printf_(int color, const char* fmt, ...)
     {
         const char* col_str;
         switch(color) {
-            case ACUTEST_COLOR_RED_:                col_str = "\033[0;31m"; break;
             case ACUTEST_COLOR_GREEN_:              col_str = "\033[0;32m"; break;
-            case ACUTEST_COLOR_YELLOW_:             col_str = "\033[0;33m"; break;
-            case ACUTEST_COLOR_RED_INTENSIVE_:      col_str = "\033[1;31m"; break;
+            case ACUTEST_COLOR_RED_:                col_str = "\033[0;31m"; break;
             case ACUTEST_COLOR_GREEN_INTENSIVE_:    col_str = "\033[1;32m"; break;
-            case ACUTEST_COLOR_YELLOW_INTENSIVE_:   col_str = "\033[1;33m"; break;
+            case ACUTEST_COLOR_RED_INTENSIVE_:      col_str = "\033[1;31m"; break;
             case ACUTEST_COLOR_DEFAULT_INTENSIVE_:  col_str = "\033[1m"; break;
             default:                                col_str = "\033[0m"; break;
         }
@@ -619,13 +570,11 @@ acutest_colored_printf_(int color, const char* fmt, ...)
         GetConsoleScreenBufferInfo(h, &info);
 
         switch(color) {
-            case ACUTEST_COLOR_RED_:                attr = FOREGROUND_RED; break;
             case ACUTEST_COLOR_GREEN_:              attr = FOREGROUND_GREEN; break;
-            case ACUTEST_COLOR_YELLOW_:             attr = FOREGROUND_RED | FOREGROUND_GREEN; break;
-            case ACUTEST_COLOR_RED_INTENSIVE_:      attr = FOREGROUND_RED | FOREGROUND_INTENSITY; break;
+            case ACUTEST_COLOR_RED_:                attr = FOREGROUND_RED; break;
             case ACUTEST_COLOR_GREEN_INTENSIVE_:    attr = FOREGROUND_GREEN | FOREGROUND_INTENSITY; break;
+            case ACUTEST_COLOR_RED_INTENSIVE_:      attr = FOREGROUND_RED | FOREGROUND_INTENSITY; break;
             case ACUTEST_COLOR_DEFAULT_INTENSIVE_:  attr = FOREGROUND_BLUE | FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_INTENSITY; break;
-            case ACUTEST_COLOR_YELLOW_INTENSIVE_:   attr = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY; break;
             default:                                attr = 0; break;
         }
         if(attr != 0)
@@ -638,35 +587,6 @@ acutest_colored_printf_(int color, const char* fmt, ...)
     n = printf("%s", buffer);
     return n;
 #endif
-}
-
-static const char*
-acutest_basename_(const char* path)
-{
-    const char* name;
-
-    name = strrchr(path, '/');
-    if(name != NULL)
-        name++;
-    else
-        name = path;
-
-#ifdef ACUTEST_WIN_
-    {
-        const char* alt_name;
-
-        alt_name = strrchr(path, '\\');
-        if(alt_name != NULL)
-            alt_name++;
-        else
-            alt_name = path;
-
-        if(alt_name > name)
-            name = alt_name;
-    }
-#endif
-
-    return name;
 }
 
 static void
@@ -691,36 +611,26 @@ acutest_begin_test_line_(const struct acutest_test_* test)
 }
 
 static void
-acutest_finish_test_line_(enum acutest_state_ state)
+acutest_finish_test_line_(int result)
 {
     if(acutest_tap_) {
-        printf("%s %d - %s%s\n",
-                (state == ACUTEST_STATE_SUCCESS || state == ACUTEST_STATE_SKIPPED) ? "ok" : "not ok",
-                acutest_current_index_ + 1,
-                acutest_current_test_->name,
-                (state == ACUTEST_STATE_SKIPPED) ? " # SKIP" : "");
+        const char* str = (result == 0) ? "ok" : "not ok";
 
-        if(state == ACUTEST_STATE_SUCCESS  &&  acutest_timer_) {
+        printf("%s %d - %s\n", str, acutest_current_index_ + 1, acutest_current_test_->name);
+
+        if(result == 0  &&  acutest_timer_) {
             printf("# Duration: ");
             acutest_timer_print_diff_();
             printf("\n");
         }
     } else {
-        int color;
-        const char* str;
-
-        switch(state) {
-            case ACUTEST_STATE_SUCCESS: color = ACUTEST_COLOR_GREEN_INTENSIVE_; str = "OK"; break;
-            case ACUTEST_STATE_SKIPPED: color = ACUTEST_COLOR_YELLOW_INTENSIVE_; str = "SKIPPED"; break;
-            case ACUTEST_STATE_FAILED:  /* Fall through. */
-            default:                    color = ACUTEST_COLOR_RED_INTENSIVE_; str = "FAILED"; break;
-        }
-
+        int color = (result == 0) ? ACUTEST_COLOR_GREEN_INTENSIVE_ : ACUTEST_COLOR_RED_INTENSIVE_;
+        const char* str = (result == 0) ? "OK" : "FAILED";
         printf("[ ");
         acutest_colored_printf_(color, "%s", str);
         printf(" ]");
 
-        if(state == ACUTEST_STATE_SUCCESS  &&  acutest_timer_) {
+        if(result == 0  &&  acutest_timer_) {
             printf("  ");
             acutest_timer_print_diff_();
         }
@@ -747,51 +657,6 @@ acutest_line_indent_(int level)
     printf("%.*s", n, spaces);
 }
 
-void ACUTEST_ATTRIBUTE_(format (printf, 3, 4))
-acutest_skip_(const char* file, int line, const char* fmt, ...)
-{
-    va_list args;
-    size_t reason_len;
-
-    va_start(args, fmt);
-    vsnprintf(acutest_test_skip_reason_, sizeof(acutest_test_skip_reason_), fmt, args);
-    va_end(args);
-    acutest_test_skip_reason_[sizeof(acutest_test_skip_reason_)-1] = '\0';
-
-    /* Remove final dot, if provided; that collides with our other logic. */
-    reason_len = strlen(acutest_test_skip_reason_);
-    if(acutest_test_skip_reason_[reason_len-1] == '.')
-        acutest_test_skip_reason_[reason_len-1] = '\0';
-
-    if(acutest_test_check_count_ > 0) {
-        acutest_check_(0, file, line, "Cannot skip, already performed some checks");
-        return;
-    }
-
-    if(acutest_verbose_level_ >= 2) {
-        const char *result_str = "skipped";
-        int result_color = ACUTEST_COLOR_YELLOW_;
-
-        if(!acutest_test_already_logged_  &&  acutest_current_test_ != NULL)
-            acutest_finish_test_line_(ACUTEST_STATE_SKIPPED);
-        acutest_test_already_logged_++;
-
-        acutest_line_indent_(1);
-
-        if(file != NULL) {
-            file = acutest_basename_(file);
-            printf("%s:%d: ", file, line);
-        }
-
-        printf("%s... ", acutest_test_skip_reason_);
-        acutest_colored_printf_(result_color, "%s", result_str);
-        printf("\n");
-        acutest_test_already_logged_++;
-    }
-
-    acutest_test_skip_count_++;
-}
-
 int ACUTEST_ATTRIBUTE_(format (printf, 4, 5))
 acutest_check_(int cond, const char* file, int line, const char* fmt, ...)
 {
@@ -799,28 +664,19 @@ acutest_check_(int cond, const char* file, int line, const char* fmt, ...)
     int result_color;
     int verbose_level;
 
-    if(acutest_test_skip_count_) {
-        /* We've skipped the test. We shouldn't be here: The test implementation
-         * should have already return before. So lets suppress the following
-         * output. */
-        cond = 1;
-        goto skip_check;
-    }
-
     if(cond) {
         result_str = "ok";
         result_color = ACUTEST_COLOR_GREEN_;
         verbose_level = 3;
     } else {
         if(!acutest_test_already_logged_  &&  acutest_current_test_ != NULL)
-            acutest_finish_test_line_(ACUTEST_STATE_FAILED);
-
-        acutest_test_failures_++;
-        acutest_test_already_logged_++;
+            acutest_finish_test_line_(-1);
 
         result_str = "failed";
         result_color = ACUTEST_COLOR_RED_;
         verbose_level = 2;
+        acutest_test_failures_++;
+        acutest_test_already_logged_++;
     }
 
     if(acutest_verbose_level_ >= verbose_level) {
@@ -835,8 +691,20 @@ acutest_check_(int cond, const char* file, int line, const char* fmt, ...)
 
         acutest_line_indent_(acutest_case_name_[0] ? 2 : 1);
         if(file != NULL) {
-            file = acutest_basename_(file);
-            printf("%s:%d: ", file, line);
+#ifdef ACUTEST_WIN_
+            const char* lastsep1 = strrchr(file, '\\');
+            const char* lastsep2 = strrchr(file, '/');
+            if(lastsep1 == NULL)
+                lastsep1 = file-1;
+            if(lastsep2 == NULL)
+                lastsep2 = file-1;
+            file = (lastsep1 > lastsep2 ? lastsep1 : lastsep2) + 1;
+#else
+            const char* lastsep = strrchr(file, '/');
+            if(lastsep != NULL)
+                file = lastsep+1;
+#endif
+            printf("%s:%d: Check ", file, line);
         }
 
         va_start(args, fmt);
@@ -849,9 +717,6 @@ acutest_check_(int cond, const char* file, int line, const char* fmt, ...)
         acutest_test_already_logged_++;
     }
 
-    acutest_test_check_count_++;
-
-skip_check:
     acutest_cond_failed_ = (cond == 0);
     return !acutest_cond_failed_;
 }
@@ -1009,9 +874,7 @@ acutest_abort_(void)
     } else {
         if(acutest_current_test_ != NULL)
             acutest_fini_(acutest_current_test_->name);
-        fflush(stdout);
-        fflush(stderr);
-        acutest_exit_(ACUTEST_STATE_FAILED);
+        abort();
     }
 }
 
@@ -1023,6 +886,28 @@ acutest_list_names_(void)
     printf("Unit tests:\n");
     for(test = &acutest_list_[0]; test->func != NULL; test++)
         printf("  %s\n", test->name);
+}
+
+static void
+acutest_remember_(int i)
+{
+    if(acutest_test_data_[i].flags & ACUTEST_FLAG_RUN_)
+        return;
+
+    acutest_test_data_[i].flags |= ACUTEST_FLAG_RUN_;
+    acutest_count_++;
+}
+
+static void
+acutest_set_success_(int i, int success)
+{
+    acutest_test_data_[i].flags |= success ? ACUTEST_FLAG_SUCCESS_ : ACUTEST_FLAG_FAILURE_;
+}
+
+static void
+acutest_set_duration_(int i, double duration)
+{
+    acutest_test_data_[i].duration = duration;
 }
 
 static int
@@ -1049,15 +934,15 @@ acutest_name_contains_word_(const char* name, const char* pattern)
 }
 
 static int
-acutest_select_(const char* pattern)
+acutest_lookup_(const char* pattern)
 {
     int i;
     int n = 0;
 
     /* Try exact match. */
-    for(i = 0; i < acutest_list_size_; i++) {
+    for(i = 0; i < (int) acutest_list_size_; i++) {
         if(strcmp(acutest_list_[i].name, pattern) == 0) {
-            acutest_test_data_[i].state = ACUTEST_STATE_SELECTED;
+            acutest_remember_(i);
             n++;
             break;
         }
@@ -1066,9 +951,9 @@ acutest_select_(const char* pattern)
         return n;
 
     /* Try word match. */
-    for(i = 0; i < acutest_list_size_; i++) {
+    for(i = 0; i < (int) acutest_list_size_; i++) {
         if(acutest_name_contains_word_(acutest_list_[i].name, pattern)) {
-            acutest_test_data_[i].state = ACUTEST_STATE_SELECTED;
+            acutest_remember_(i);
             n++;
         }
     }
@@ -1076,9 +961,9 @@ acutest_select_(const char* pattern)
         return n;
 
     /* Try relaxed match. */
-    for(i = 0; i < acutest_list_size_; i++) {
+    for(i = 0; i < (int) acutest_list_size_; i++) {
         if(strstr(acutest_list_[i].name, pattern) != NULL) {
-            acutest_test_data_[i].state = ACUTEST_STATE_SELECTED;
+            acutest_remember_(i);
             n++;
         }
     }
@@ -1114,23 +999,20 @@ acutest_error_(const char* fmt, ...)
 }
 
 /* Call directly the given test unit function. */
-static enum acutest_state_
+static int
 acutest_do_run_(const struct acutest_test_* test, int index)
 {
-    enum acutest_state_ state = ACUTEST_STATE_FAILED;
+    int status = -1;
 
+    acutest_was_aborted_ = 0;
     acutest_current_test_ = test;
     acutest_current_index_ = index;
     acutest_test_failures_ = 0;
     acutest_test_already_logged_ = 0;
-    acutest_test_check_count_ = 0;
-    acutest_test_skip_count_ = 0;
     acutest_cond_failed_ = 0;
 
 #ifdef __cplusplus
-#ifndef TEST_NO_EXCEPTIONS
     try {
-#endif
 #endif
         acutest_init_(test->name);
         acutest_begin_test_line_(test);
@@ -1141,60 +1023,49 @@ acutest_do_run_(const struct acutest_test_* test, int index)
 
         if(!acutest_worker_) {
             acutest_abort_has_jmp_buf_ = 1;
-            if(setjmp(acutest_abort_jmp_buf_) != 0)
+            if(setjmp(acutest_abort_jmp_buf_) != 0) {
+                acutest_was_aborted_ = 1;
                 goto aborted;
+            }
         }
 
         acutest_timer_get_time_(&acutest_timer_start_);
         test->func();
-
 aborted:
         acutest_abort_has_jmp_buf_ = 0;
         acutest_timer_get_time_(&acutest_timer_end_);
 
-        if(acutest_test_failures_ > 0)
-            state = ACUTEST_STATE_FAILED;
-        else if(acutest_test_skip_count_ > 0)
-            state = ACUTEST_STATE_SKIPPED;
-        else
-            state = ACUTEST_STATE_SUCCESS;
-
-        if(!acutest_test_already_logged_)
-            acutest_finish_test_line_(state);
-
         if(acutest_verbose_level_ >= 3) {
             acutest_line_indent_(1);
-            switch(state) {
-                case ACUTEST_STATE_SUCCESS:
-                    acutest_colored_printf_(ACUTEST_COLOR_GREEN_INTENSIVE_, "SUCCESS: ");
-                    printf("All conditions have passed.\n");
+            if(acutest_test_failures_ == 0) {
+                acutest_colored_printf_(ACUTEST_COLOR_GREEN_INTENSIVE_, "SUCCESS: ");
+                printf("All conditions have passed.\n");
 
-                    if(acutest_timer_) {
-                        acutest_line_indent_(1);
-                        printf("Duration: ");
-                        acutest_timer_print_diff_();
-                        printf("\n");
-                    }
-                    break;
-
-                case ACUTEST_STATE_SKIPPED:
-                    acutest_colored_printf_(ACUTEST_COLOR_YELLOW_INTENSIVE_, "SKIPPED: ");
-                    printf("%s.\n", acutest_test_skip_reason_);
-                    break;
-
-                default:
-                    acutest_colored_printf_(ACUTEST_COLOR_RED_INTENSIVE_, "FAILED: ");
+                if(acutest_timer_) {
+                    acutest_line_indent_(1);
+                    printf("Duration: ");
+                    acutest_timer_print_diff_();
+                    printf("\n");
+                }
+            } else {
+                acutest_colored_printf_(ACUTEST_COLOR_RED_INTENSIVE_, "FAILED: ");
+                if(!acutest_was_aborted_) {
                     printf("%d condition%s %s failed.\n",
                             acutest_test_failures_,
                             (acutest_test_failures_ == 1) ? "" : "s",
                             (acutest_test_failures_ == 1) ? "has" : "have");
-                    break;
+                } else {
+                    printf("Aborted.\n");
+                }
             }
             printf("\n");
+        } else if(acutest_verbose_level_ >= 1 && acutest_test_failures_ == 0) {
+            acutest_finish_test_line_(0);
         }
 
+        status = (acutest_test_failures_ == 0) ? 0 : -1;
+
 #ifdef __cplusplus
-#ifndef TEST_NO_EXCEPTIONS
     } catch(std::exception& e) {
         const char* what = e.what();
         acutest_check_(0, NULL, 0, "Threw std::exception");
@@ -1216,13 +1087,12 @@ aborted:
         }
     }
 #endif
-#endif
 
     acutest_fini_(test->name);
     acutest_case_(NULL);
     acutest_current_test_ = NULL;
 
-    return state;
+    return status;
 }
 
 /* Trigger the unit test. If possible (and not suppressed) it starts a child
@@ -1231,7 +1101,7 @@ aborted:
 static void
 acutest_run_(const struct acutest_test_* test, int index, int master_index)
 {
-    enum acutest_state_ state = ACUTEST_STATE_FAILED;
+    int failed = 1;
     acutest_timer_type_ start, end;
 
     acutest_current_test_ = test;
@@ -1252,16 +1122,21 @@ acutest_run_(const struct acutest_test_* test, int index, int master_index)
         pid = fork();
         if(pid == (pid_t)-1) {
             acutest_error_("Cannot fork. %s [%d]", strerror(errno), errno);
+            failed = 1;
         } else if(pid == 0) {
             /* Child: Do the test. */
             acutest_worker_ = 1;
-            state = acutest_do_run_(test, index);
-            acutest_exit_((int) state);
+            failed = (acutest_do_run_(test, index) != 0);
+            acutest_exit_(failed ? 1 : 0);
         } else {
             /* Parent: Wait until child terminates and analyze its exit code. */
             waitpid(pid, &exit_code, 0);
             if(WIFEXITED(exit_code)) {
-                state = (enum acutest_state_) WEXITSTATUS(exit_code);
+                switch(WEXITSTATUS(exit_code)) {
+                    case 0:   failed = 0; break;   /* test has passed. */
+                    case 1:   /* noop */ break;    /* "normal" failure. */
+                    default:  acutest_error_("Unexpected exit code [%d]", WEXITSTATUS(exit_code));
+                }
             } else if(WIFSIGNALED(exit_code)) {
                 char tmp[32];
                 const char* signame;
@@ -1274,7 +1149,7 @@ acutest_run_(const struct acutest_test_* test, int index, int master_index)
                     case SIGSEGV: signame = "SIGSEGV"; break;
                     case SIGILL:  signame = "SIGILL"; break;
                     case SIGTERM: signame = "SIGTERM"; break;
-                    default:      snprintf(tmp, sizeof(tmp), "signal %d", WTERMSIG(exit_code)); signame = tmp; break;
+                    default:      sprintf(tmp, "signal %d", WTERMSIG(exit_code)); signame = tmp; break;
                 }
                 acutest_error_("Test interrupted by %s.", signame);
             } else {
@@ -1291,7 +1166,7 @@ acutest_run_(const struct acutest_test_* test, int index, int master_index)
 
         /* Windows has no fork(). So we propagate all info into the child
          * through a command line arguments. */
-        snprintf(buffer, sizeof(buffer),
+        _snprintf(buffer, sizeof(buffer)-1,
                  "%s --worker=%d %s --no-exec --no-summary %s --verbose=%d --color=%s -- \"%s\"",
                  acutest_argv0_, index, acutest_timer_ ? "--time" : "",
                  acutest_tap_ ? "--tap" : "", acutest_verbose_level_,
@@ -1304,35 +1179,40 @@ acutest_run_(const struct acutest_test_* test, int index, int master_index)
             GetExitCodeProcess(processInfo.hProcess, &exitCode);
             CloseHandle(processInfo.hThread);
             CloseHandle(processInfo.hProcess);
-            switch(exitCode) {
-                case 0:             state = ACUTEST_STATE_SUCCESS; break;
-                case 1:             state = ACUTEST_STATE_FAILED; break;
-                case 2:             state = ACUTEST_STATE_SKIPPED; break;
-                case 3:             acutest_error_("Aborted."); break;
-                case 0xC0000005:    acutest_error_("Access violation."); break;
-                default:            acutest_error_("Test ended in an unexpected way [%lu].", exitCode); break;
+            failed = (exitCode != 0);
+            if(exitCode > 1) {
+                switch(exitCode) {
+                    case 3:             acutest_error_("Aborted."); break;
+                    case 0xC0000005:    acutest_error_("Access violation."); break;
+                    default:            acutest_error_("Test ended in an unexpected way [%lu].", exitCode); break;
+                }
             }
         } else {
             acutest_error_("Cannot create unit test subprocess [%ld].", GetLastError());
+            failed = 1;
         }
 
 #else
 
         /* A platform where we don't know how to run child process. */
-        state = acutest_do_run_(test, index);
+        failed = (acutest_do_run_(test, index) != 0);
 
 #endif
 
     } else {
         /* Child processes suppressed through --no-exec. */
-        state = acutest_do_run_(test, index);
+        failed = (acutest_do_run_(test, index) != 0);
     }
     acutest_timer_get_time_(&end);
 
     acutest_current_test_ = NULL;
 
-    acutest_test_data_[master_index].state = state;
-    acutest_test_data_[master_index].duration = acutest_timer_diff_(start, end);
+    acutest_stat_run_units_++;
+    if(failed)
+        acutest_stat_failed_units_++;
+
+    acutest_set_success_(master_index, !failed);
+    acutest_set_duration_(master_index, acutest_timer_diff_(start, end));
 }
 
 #if defined(ACUTEST_WIN_)
@@ -1444,7 +1324,7 @@ acutest_cmdline_read_(const ACUTEST_CMDLINE_OPTION_* options, int argc, char** a
                             if(opt->flags & (ACUTEST_CMDLINE_OPTFLAG_OPTIONALARG_ | ACUTEST_CMDLINE_OPTFLAG_REQUIREDARG_)) {
                                 ret = callback(opt->id, argv[i]+2+len+1);
                             } else {
-                                snprintf(auxbuf, sizeof(auxbuf), "--%s", opt->longname);
+                                sprintf(auxbuf, "--%s", opt->longname);
                                 ret = callback(ACUTEST_CMDLINE_OPTID_BOGUSARG_, auxbuf);
                             }
                             break;
@@ -1488,7 +1368,7 @@ acutest_cmdline_read_(const ACUTEST_CMDLINE_OPTION_* options, int argc, char** a
                         /* Strip any argument from the long option. */
                         char* assignment = strchr(badoptname, '=');
                         if(assignment != NULL) {
-                            size_t len = (size_t)(assignment - badoptname);
+                            size_t len = assignment - badoptname;
                             if(len > ACUTEST_CMDLINE_AUXBUF_SIZE_)
                                 len = ACUTEST_CMDLINE_AUXBUF_SIZE_;
                             strncpy(auxbuf, badoptname, len);
@@ -1515,12 +1395,12 @@ acutest_help_(void)
 {
     printf("Usage: %s [options] [test...]\n", acutest_argv0_);
     printf("\n");
-    printf("Run the specified unit tests; or if the option '--exclude' is used, run all\n");
+    printf("Run the specified unit tests; or if the option '--skip' is used, run all\n");
     printf("tests in the suite but those listed.  By default, if no tests are specified\n");
     printf("on the command line, all unit tests in the suite are run.\n");
     printf("\n");
     printf("Options:\n");
-    printf("  -X, --exclude         Execute all unit tests but the listed ones\n");
+    printf("  -s, --skip            Execute all unit tests but the listed ones\n");
     printf("      --exec[=WHEN]     If supported, execute unit tests as child processes\n");
     printf("                          (WHEN is one of 'auto', 'always', 'never')\n");
     printf("  -E, --no-exec         Same as --exec=never\n");
@@ -1555,8 +1435,7 @@ acutest_help_(void)
 }
 
 static const ACUTEST_CMDLINE_OPTION_ acutest_cmdline_options_[] = {
-    { 'X',  "exclude",      'X', 0 },
-    { 's',  "skip",         'X', 0 },   /* kept for compatibility, use --exclude instead */
+    { 's',  "skip",         's', 0 },
     {  0,   "exec",         'e', ACUTEST_CMDLINE_OPTFLAG_OPTIONALARG_ },
     { 'E',  "no-exec",      'E', 0 },
 #if defined ACUTEST_WIN_
@@ -1583,8 +1462,8 @@ static int
 acutest_cmdline_callback_(int id, const char* arg)
 {
     switch(id) {
-        case 'X':
-            acutest_exclude_mode_ = 1;
+        case 's':
+            acutest_skip_mode_ = 1;
             break;
 
         case 'e':
@@ -1678,7 +1557,7 @@ acutest_cmdline_callback_(int id, const char* arg)
             break;
 
         case 0:
-            if(acutest_select_(arg) == 0) {
+            if(acutest_lookup_(arg) == 0) {
                 fprintf(stderr, "%s: Unrecognized unit test '%s'\n", acutest_argv0_, arg);
                 fprintf(stderr, "Try '%s --list' for list of unit tests.\n", acutest_argv0_);
                 acutest_exit_(2);
@@ -1707,107 +1586,93 @@ acutest_cmdline_callback_(int id, const char* arg)
     return 0;
 }
 
-static int
-acutest_under_debugger_(void)
-{
+
 #ifdef ACUTEST_LINUX_
-    /* Scan /proc/self/status for line "TracerPid: [PID]". If such line exists
-     * and the PID is non-zero, we're being debugged. */
-    {
-        static const int OVERLAP = 32;
-        int fd;
-        char buf[512];
-        size_t n_read;
-        pid_t tracer_pid = 0;
+static int
+acutest_is_tracer_present_(void)
+{
+    /* Must be large enough so the line 'TracerPid: ${PID}' can fit in. */
+    static const int OVERLAP = 32;
 
-        /* Little trick so that we can treat the 1st line the same as any other
-         * and detect line start easily. */
-        buf[0] = '\n';
-        n_read = 1;
+    char buf[512];
+    int tracer_present = 0;
+    int fd;
+    size_t n_read = 0;
 
-        fd = open("/proc/self/status", O_RDONLY);
-        if(fd != -1) {
-            while(1) {
-                static const char pattern[] = "\nTracerPid:";
-                const char* field;
+    fd = open("/proc/self/status", O_RDONLY);
+    if(fd == -1)
+        return 0;
 
-                while(n_read < sizeof(buf) - 1) {
-                    ssize_t n;
+    while(1) {
+        static const char pattern[] = "TracerPid:";
+        const char* field;
 
-                    n = read(fd, buf + n_read, sizeof(buf) - 1 - n_read);
-                    if(n <= 0)
-                        break;
-                    n_read += (size_t)n;
-                }
-                buf[n_read] = '\0';
+        while(n_read < sizeof(buf) - 1) {
+            ssize_t n;
 
-                field = strstr(buf, pattern);
-                if(field != NULL  &&  field < buf + sizeof(buf) - OVERLAP) {
-                    tracer_pid = (pid_t) atoi(field + sizeof(pattern) - 1);
-                    break;
-                }
+            n = read(fd, buf + n_read, sizeof(buf) - 1 - n_read);
+            if(n <= 0)
+                break;
+            n_read += n;
+        }
+        buf[n_read] = '\0';
 
-                if(n_read == sizeof(buf) - 1) {
-                    /* Move the tail with the potentially incomplete line we're
-                     * be looking for to the beginning of the buffer.
-                     * (The OVERLAP must be large enough so the searched line
-                     * can fit in completely.) */
-                    memmove(buf, buf + sizeof(buf) - 1 - OVERLAP, OVERLAP);
-                    n_read = OVERLAP;
-                } else {
-                    break;
-                }
-            }
+        field = strstr(buf, pattern);
+        if(field != NULL  &&  field < buf + sizeof(buf) - OVERLAP) {
+            pid_t tracer_pid = (pid_t) atoi(field + sizeof(pattern) - 1);
+            tracer_present = (tracer_pid != 0);
+            break;
+        }
 
-            close(fd);
-
-            if(tracer_pid != 0)
-                return 1;
+        if(n_read == sizeof(buf) - 1) {
+            /* Move the tail with the potentially incomplete line we're looking
+             * for to the beginning of the buffer. */
+            memmove(buf, buf + sizeof(buf) - 1 - OVERLAP, OVERLAP);
+            n_read = OVERLAP;
+        } else {
+            break;
         }
     }
+
+    close(fd);
+    return tracer_present;
+}
 #endif
 
 #ifdef ACUTEST_MACOS_
-    /* See https://developer.apple.com/library/archive/qa/qa1361/_index.html */
-    {
-        int mib[4];
-        struct kinfo_proc info;
-        size_t size;
+static bool
+acutest_AmIBeingDebugged(void)
+{
+    int junk;
+    int mib[4];
+    struct kinfo_proc info;
+    size_t size;
 
-        mib[0] = CTL_KERN;
-        mib[1] = KERN_PROC;
-        mib[2] = KERN_PROC_PID;
-        mib[3] = getpid();
+    // Initialize the flags so that, if sysctl fails for some bizarre
+    // reason, we get a predictable result.
+    info.kp_proc.p_flag = 0;
 
-        size = sizeof(info);
-        info.kp_proc.p_flag = 0;
-        sysctl(mib, sizeof(mib) / sizeof(*mib), &info, &size, NULL, 0);
+    // Initialize mib, which tells sysctl the info we want, in this case
+    // we're looking for information about a specific process ID.
+    mib[0] = CTL_KERN;
+    mib[1] = KERN_PROC;
+    mib[2] = KERN_PROC_PID;
+    mib[3] = getpid();
 
-        if(info.kp_proc.p_flag & P_TRACED)
-            return 1;
-    }
-#endif
+    // Call sysctl.
+    size = sizeof(info);
+    junk = sysctl(mib, sizeof(mib) / sizeof(*mib), &info, &size, NULL, 0);
+    assert(junk == 0);
 
-#ifdef ACUTEST_WIN_
-    if(IsDebuggerPresent())
-        return 1;
-#endif
-
-#ifdef RUNNING_ON_VALGRIND
-    /* We treat Valgrind as a debugger of sorts.
-     * (Macro RUNNING_ON_VALGRIND is provided by <valgrind.h>, if available.) */
-    if(RUNNING_ON_VALGRIND)
-        return 1;
-#endif
-
-    return 0;
+    // We're being debugged if the P_TRACED flag is set.
+    return ( (info.kp_proc.p_flag & P_TRACED) != 0 );
 }
+#endif
 
 int
 main(int argc, char** argv)
 {
-    int i, index;
-    int exit_code = 1;
+    int i;
 
     acutest_argv0_ = argv[0];
 
@@ -1847,39 +1712,37 @@ main(int argc, char** argv)
 #endif
 #endif
 
-    /* Determine what to run. */
-    if(acutest_count_(ACUTEST_STATE_SELECTED) > 0) {
-        enum acutest_state_ if_selected;
-        enum acutest_state_ if_unselected;
-
-        if(!acutest_exclude_mode_) {
-            if_selected = ACUTEST_STATE_NEEDTORUN;
-            if_unselected = ACUTEST_STATE_EXCLUDED;
-        } else {
-            if_selected = ACUTEST_STATE_EXCLUDED;
-            if_unselected = ACUTEST_STATE_NEEDTORUN;
-        }
-
-        for(i = 0; acutest_list_[i].func != NULL; i++) {
-            if(acutest_test_data_[i].state == ACUTEST_STATE_SELECTED)
-                acutest_test_data_[i].state = if_selected;
-            else
-                acutest_test_data_[i].state = if_unselected;
-        }
-    } else {
-        /* By default, we want to run all tests. */
+    /* By default, we want to run all tests. */
+    if(acutest_count_ == 0) {
         for(i = 0; acutest_list_[i].func != NULL; i++)
-            acutest_test_data_[i].state = ACUTEST_STATE_NEEDTORUN;
+            acutest_remember_(i);
     }
 
-    /* By default, we want to suppress running tests as child processes if we
-     * run just one test, or if we're under debugger: Debugging tests is then
-     * so much easier. */
+    /* Guess whether we want to run unit tests as child processes. */
     if(acutest_no_exec_ < 0) {
-        if(acutest_count_(ACUTEST_STATE_NEEDTORUN) <= 1  ||  acutest_under_debugger_())
+        acutest_no_exec_ = 0;
+
+        if(acutest_count_ <= 1) {
             acutest_no_exec_ = 1;
-        else
-            acutest_no_exec_ = 0;
+        } else {
+#ifdef ACUTEST_WIN_
+            if(IsDebuggerPresent())
+                acutest_no_exec_ = 1;
+#endif
+#ifdef ACUTEST_LINUX_
+            if(acutest_is_tracer_present_())
+                acutest_no_exec_ = 1;
+#endif
+#ifdef ACUTEST_MACOS_
+            if(acutest_AmIBeingDebugged())
+                acutest_no_exec_ = 1;
+#endif
+#ifdef RUNNING_ON_VALGRIND
+            /* RUNNING_ON_VALGRIND is provided by optionally included <valgrind.h> */
+            if(RUNNING_ON_VALGRIND)
+                acutest_no_exec_ = 1;
+#endif
+        }
     }
 
     if(acutest_tap_) {
@@ -1893,38 +1756,37 @@ main(int argc, char** argv)
         acutest_no_summary_ = 1;
 
         if(!acutest_worker_)
-            printf("1..%d\n", acutest_count_(ACUTEST_STATE_NEEDTORUN));
+            printf("1..%d\n", (int) acutest_count_);
     }
 
-    index = acutest_worker_index_;
+    int index = acutest_worker_index_;
     for(i = 0; acutest_list_[i].func != NULL; i++) {
-        if(acutest_test_data_[i].state == ACUTEST_STATE_NEEDTORUN)
+        int run = (acutest_test_data_[i].flags & ACUTEST_FLAG_RUN_);
+        if (acutest_skip_mode_) /* Run all tests except those listed. */
+            run = !run;
+        if(run)
             acutest_run_(&acutest_list_[i], index++, i);
     }
 
     /* Write a summary */
     if(!acutest_no_summary_ && acutest_verbose_level_ >= 1) {
-        int n_run, n_success, n_failed ;
-
-        n_run = acutest_list_size_ - acutest_count_(ACUTEST_STATE_EXCLUDED);
-        n_success = acutest_count_(ACUTEST_STATE_SUCCESS);
-        n_failed = acutest_count_(ACUTEST_STATE_FAILED);
-
         if(acutest_verbose_level_ >= 3) {
             acutest_colored_printf_(ACUTEST_COLOR_DEFAULT_INTENSIVE_, "Summary:\n");
 
-            printf("  Count of run unit tests:        %4d\n", n_run);
-            printf("  Count of successful unit tests: %4d\n", n_success);
-            printf("  Count of failed unit tests:     %4d\n", n_failed);
+            printf("  Count of all unit tests:     %4d\n", (int) acutest_list_size_);
+            printf("  Count of run unit tests:     %4d\n", acutest_stat_run_units_);
+            printf("  Count of failed unit tests:  %4d\n", acutest_stat_failed_units_);
+            printf("  Count of skipped unit tests: %4d\n", (int) acutest_list_size_ - acutest_stat_run_units_);
         }
 
-        if(n_failed == 0) {
+        if(acutest_stat_failed_units_ == 0) {
             acutest_colored_printf_(ACUTEST_COLOR_GREEN_INTENSIVE_, "SUCCESS:");
-            printf(" No unit tests have failed.\n");
+            printf(" All unit tests have passed.\n");
         } else {
             acutest_colored_printf_(ACUTEST_COLOR_RED_INTENSIVE_, "FAILED:");
             printf(" %d of %d unit tests %s failed.\n",
-                    n_failed, n_run, (n_failed == 1) ? "has" : "have");
+                    acutest_stat_failed_units_, acutest_stat_run_units_,
+                    (acutest_stat_failed_units_ == 1) ? "has" : "have");
         }
 
         if(acutest_verbose_level_ >= 3)
@@ -1932,52 +1794,34 @@ main(int argc, char** argv)
     }
 
     if (acutest_xml_output_) {
-        const char* suite_name = acutest_basename_(argv[0]);
+#if defined ACUTEST_UNIX_
+        char *suite_name = basename(argv[0]);
+#elif defined ACUTEST_WIN_
+        char suite_name[_MAX_FNAME];
+        _splitpath(argv[0], NULL, NULL, suite_name, NULL);
+#else
+        const char *suite_name = argv[0];
+#endif
         fprintf(acutest_xml_output_, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-        fprintf(acutest_xml_output_, "<testsuite name=\"%s\" tests=\"%d\" errors=\"0\" failures=\"%d\" skip=\"%d\">\n",
-            suite_name,
-            (int)acutest_list_size_,
-            acutest_count_(ACUTEST_STATE_FAILED),
-            acutest_count_(ACUTEST_STATE_SKIPPED) + acutest_count_(ACUTEST_STATE_EXCLUDED));
+        fprintf(acutest_xml_output_, "<testsuite name=\"%s\" tests=\"%d\" errors=\"%d\" failures=\"%d\" skip=\"%d\">\n",
+            suite_name, (int)acutest_list_size_, acutest_stat_failed_units_, acutest_stat_failed_units_,
+            (int)acutest_list_size_ - acutest_stat_run_units_);
         for(i = 0; acutest_list_[i].func != NULL; i++) {
             struct acutest_test_data_ *details = &acutest_test_data_[i];
-            const char* str_state;
             fprintf(acutest_xml_output_, "  <testcase name=\"%s\" time=\"%.2f\">\n", acutest_list_[i].name, details->duration);
-
-            switch(details->state) {
-                case ACUTEST_STATE_SUCCESS:     str_state = NULL; break;
-                case ACUTEST_STATE_EXCLUDED:    /* Fall through. */
-                case ACUTEST_STATE_SKIPPED:     str_state = "<skipped />"; break;
-                case ACUTEST_STATE_FAILED:      /* Fall through. */
-                default:                        str_state = "<failure />"; break;
-            }
-
-            if(str_state != NULL)
-                fprintf(acutest_xml_output_, "    %s\n", str_state);
+            if (details->flags & ACUTEST_FLAG_FAILURE_)
+                fprintf(acutest_xml_output_, "    <failure />\n");
+            if (!(details->flags & ACUTEST_FLAG_FAILURE_) && !(details->flags & ACUTEST_FLAG_SUCCESS_))
+                fprintf(acutest_xml_output_, "    <skipped />\n");
             fprintf(acutest_xml_output_, "  </testcase>\n");
         }
         fprintf(acutest_xml_output_, "</testsuite>\n");
         fclose(acutest_xml_output_);
     }
 
-    if(acutest_worker_  &&  acutest_count_(ACUTEST_STATE_EXCLUDED)+1 == acutest_list_size_) {
-        /* If we are the child process, we need to propagate the test state
-         * without any moderation. */
-        for(i = 0; acutest_list_[i].func != NULL; i++) {
-            if(acutest_test_data_[i].state != ACUTEST_STATE_EXCLUDED) {
-                exit_code = (int) acutest_test_data_[i].state;
-                break;
-            }
-        }
-    } else {
-        if(acutest_count_(ACUTEST_STATE_FAILED) > 0)
-            exit_code = 1;
-        else
-            exit_code = 0;
-    }
-
     acutest_cleanup_();
-    return exit_code;
+
+    return (acutest_stat_failed_units_ == 0) ? 0 : 1;
 }
 
 

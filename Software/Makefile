@@ -13,6 +13,7 @@ TARGET = out
 ifeq ($(MAKECMDGOALS),test)
 	SRCS := $(filter-out ${SRC_FOLDER}/main.cpp, ${SRCS})
 	SRCS += $(wildcard ${TEST_FOLDER}/*.cpp)
+	CXXFLAGS += -DTEST_NO_MAIN
 endif
 
 #$(info $$SRCS is [${SRCS}])

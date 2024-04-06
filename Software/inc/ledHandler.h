@@ -15,7 +15,7 @@ using namespace std;
 class LedHandler
 {
     public:
-        explicit LedHandler(vector<io_information_t> informationLeds);
+        explicit LedHandler(vector<io_information_t> leds);
 
         uint8_t displayBinaryNumber(uint8_t number);
         uint8_t displayError(void);

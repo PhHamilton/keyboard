@@ -6,6 +6,8 @@
 
 typedef enum
 {
+    LED_HANDLER_OK,
+    LED_HANDLER_FAULTY_NUMBER,
     SOMETHING_FAILED
 }error_codes_t;
 
